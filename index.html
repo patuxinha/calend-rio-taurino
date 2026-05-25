@@ -1,4 +1,4 @@
-<!DOCTYPE html><!-- CTB-v20260525-FIXES -->
+<!DOCTYPE html><!-- CTB-v20260525-MODAL -->
 <html lang="pt">
 <head>
 <meta charset="UTF-8"/>
@@ -1494,8 +1494,29 @@ function openRua(f){
   openModal();initMap(f.lat,f.lon,f.nom,'#5c2800');
 }
 
-function openModal(){document.getElementById('mo-ov').classList.add('open');}
-function closeModal(){document.body.style.overflow="";document.getElementById('mo-ov').classList.remove('open');document.body.style.overflow='';clearMMap();}
+function openModal(){
+  const mo=document.getElementById('mo-ov');
+  mo.scrollTop=0; // modal começa sempre no topo — conteúdo visível imediatamente
+  // Bloquear scroll do body (fix iOS Safari que puxa o ecrã para cima)
+  const sy=window.scrollY||window.pageYOffset;
+  document.body._moScroll=sy;
+  document.body.style.top=`-${sy}px`;
+  document.body.style.overflow='hidden';
+  document.body.style.position='fixed';
+  document.body.style.width='100%';
+  mo.classList.add('open');
+}
+function closeModal(){
+  const mo=document.getElementById('mo-ov');
+  const sy=document.body._moScroll||0;
+  document.body.style.overflow='';
+  document.body.style.position='';
+  document.body.style.top='';
+  document.body.style.width='';
+  mo.classList.remove('open');
+  window.scrollTo(0,sy); // restaura posição exacta onde o utilizador estava
+  clearMMap();
+}
 function closeMO(e){if(e.target===document.getElementById('mo-ov'))closeModal();}
 function clearMMap(){if(modalMap){try{modalMap.remove();}catch(e){}modalMap=null;}}
 function initMap(lat,lon,nom,col='#8b0000'){
