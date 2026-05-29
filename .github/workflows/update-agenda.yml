@@ -1,0 +1,37 @@
+name: Actualizar Agenda Taurina
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # Todos os dias às 07h00 UTC (08h00 Lisboa)
+  workflow_dispatch:        # Permite correr manualmente
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependências
+        run: pip install requests beautifulsoup4 anthropic lxml
+
+      - name: Correr scraper
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scraper.py
+
+      - name: Commit e push se houver alterações
+        run: |
+          git config user.name "CTB Bot"
+          git config user.email "bot@calendariotaurino.net"
+          git add index.html
+          git diff --staged --quiet || git commit -m "🐂 Agenda actualizada automaticamente - $(date '+%d/%m/%Y')"
+          git push
