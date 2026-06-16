@@ -75,6 +75,41 @@ def js_escape(s):
         return ''
     return str(s).replace('\\', '\\\\').replace("'", "\\'")
 
+def split_top_level_objects(text):
+    """Extrai todos os objectos JS de nível superior de um texto, de forma
+    robusta a vírgulas ou novas linhas em falta entre objectos (a API às vezes
+    esquece a vírgula separadora). Ignora chavetas dentro de strings."""
+    objects = []
+    depth = 0
+    start = None
+    in_string = False
+    string_char = None
+    escape = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == string_char:
+                in_string = False
+            continue
+        if ch in ("'", '"'):
+            in_string = True
+            string_char = ch
+            continue
+        if ch == '{':
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == '}':
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    objects.append(text[start:i+1])
+                    start = None
+    return objects
+
 def ask_claude(client, prompt, max_tokens=2500):
     try:
         msg = client.messages.create(
@@ -137,12 +172,8 @@ TEXTO:
         if not resp:
             continue
 
-        for obj in re.split(r'\},\s*\{', resp):
-            obj = obj.strip().lstrip(',').strip()
-            if not obj.startswith('{'):
-                obj = '{' + obj
-            if not obj.endswith('}'):
-                obj = obj + '}'
+        for obj in split_top_level_objects(resp):
+            obj = obj.strip()
 
             m_dt  = re.search(r"dt:'(\d{4}-\d{2}-\d{2})'", obj)
             m_loc = re.search(r"loc:'([^']+)'", obj)
