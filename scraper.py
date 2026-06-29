@@ -35,6 +35,9 @@ SITES_AGENDA = [
     # Américas — fontes globais com cobertura de Peru, Colombia, México, Venezuela, Equador, etc.
     {"nome": "torosenelmundo.com", "url": "https://torosenelmundo.com/calendario/",         "pais": "am"},
     {"nome": "voyalostoros.com",   "url": "https://www.voyalostoros.com/",                  "pais": "am"},
+    # França
+    {"nome": "tertulias.fr",       "url": "https://www.tertulias.fr/cartels-2026/",          "pais": "fr"},
+    {"nome": "vueltaalostoros.fr", "url": "https://www.vueltaalostoros.fr/cartels/",         "pais": "fr"},
 ]
 
 SITES_TV = [
@@ -160,6 +163,8 @@ def scrape_agenda(client, html):
             flag, pN = '🇵🇹', 'Portugal'
         elif site['pais'] == 'es':
             flag, pN = '🇪🇸', 'Espanha'
+        elif site['pais'] == 'fr':
+            flag, pN = '🇫🇷', 'França'
         else:
             # Site das Américas — eventos de vários países
             flag, pN = '🌎', 'América'
