@@ -449,7 +449,7 @@ def prune_past_events(html):
             return script
         body = script[arr_open+1:arr_close]
         kept = []
-        for _, _, obj in split_top_level_objects(body):
+        for obj in split_top_level_objects(body):
             m = re.search(rf"{date_field}:'(\d{{4}}-\d{{2}}-\d{{2}})'", obj)
             if not m:
                 kept.append(obj); continue
