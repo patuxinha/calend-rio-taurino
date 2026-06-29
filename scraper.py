@@ -417,6 +417,59 @@ def update_version(html):
         html
     )
 
+# ── Remove eventos passados (mantém o ficheiro leve para mobile) ───────────────
+
+def prune_past_events(html):
+    """Remove entradas com data anterior a hoje dos arrays FES e TV_AGENDA.
+    Evita que o ficheiro cresça indefinidamente e crache o Safari mobile."""
+
+    scripts_iter = list(re.finditer(r'<script(?:[^>]*)>(.*?)</script>', html, re.DOTALL))
+    if not scripts_iter:
+        return html, 0
+    main_match = max(scripts_iter, key=lambda m: len(m.group(1)))
+    main = main_match.group(1)
+    total_removed = 0
+
+    def prune_array(script, array_name, date_field="dt"):
+        nonlocal total_removed
+        start_m = re.search(rf'const {array_name}\s*=\s*\[', script)
+        if not start_m:
+            return script
+        arr_open = script.find('[', start_m.start())
+        depth = 0
+        arr_close = None
+        for i in range(arr_open, len(script)):
+            c = script[i]
+            if c == '[': depth += 1
+            elif c == ']':
+                depth -= 1
+                if depth == 0:
+                    arr_close = i; break
+        if arr_close is None:
+            return script
+        body = script[arr_open+1:arr_close]
+        kept = []
+        for _, _, obj in split_top_level_objects(body):
+            m = re.search(rf"{date_field}:'(\d{{4}}-\d{{2}}-\d{{2}})'", obj)
+            if not m:
+                kept.append(obj); continue
+            try:
+                dt = datetime.date.fromisoformat(m.group(1))
+                if dt >= TODAY:
+                    kept.append(obj)
+                else:
+                    total_removed += 1
+            except:
+                kept.append(obj)
+        new_body = '\n' + ',\n'.join(kept) + '\n'
+        return script[:arr_open+1] + new_body + script[arr_close:]
+
+    main = prune_array(main, 'FES')
+    main = prune_array(main, 'TV_AGENDA')
+
+    new_html = html[:main_match.start(1)] + main + html[main_match.end(1):]
+    return new_html, total_removed
+
 # ── MAIN ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -431,6 +484,15 @@ def main():
 
     client = anthropic.Anthropic(api_key=API_KEY)
     changed = False
+
+    # Fase 0: Limpeza de eventos passados
+    print("\n🧹 FASE 0: Limpeza de eventos passados")
+    html, pruned = prune_past_events(html)
+    if pruned > 0:
+        print(f"  → {pruned} eventos passados removidos")
+        changed = True
+    else:
+        print("  → Nada a remover")
 
     # Fase 1: Agenda
     print("\n📋 FASE 1: Festejos")
