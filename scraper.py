@@ -25,13 +25,16 @@ HEADERS = {
 }
 
 SITES_AGENDA = [
-    {"nome": "touradas.pt",        "url": "https://www.touradas.pt/agenda",           "pais": "pt"},
-    {"nome": "portadossustos.com", "url": "https://www.portadossustos.com/",           "pais": "pt"},
-    {"nome": "touroeouro.com",     "url": "https://touroeouro.com/",                   "pais": "pt"},
-    {"nome": "mundotoro.com",      "url": "https://www.mundotoro.com/agenda-taurina",  "pais": "es"},
-    {"nome": "cultoro.es",         "url": "https://cultoro.es/agenda-taurina",         "pais": "es"},
-    {"nome": "ladivisa.es",        "url": "https://www.ladivisa.es/",                  "pais": "es"},
-    {"nome": "tauromaquia.com.pt", "url": "https://www.tauromaquia.com.pt/",           "pais": "pt"},
+    {"nome": "touradas.pt",        "url": "https://www.touradas.pt/agenda",                "pais": "pt"},
+    {"nome": "portadossustos.com", "url": "https://www.portadossustos.com/",                "pais": "pt"},
+    {"nome": "touroeouro.com",     "url": "https://touroeouro.com/",                        "pais": "pt"},
+    {"nome": "mundotoro.com",      "url": "https://www.mundotoro.com/agenda-taurina",       "pais": "es"},
+    {"nome": "cultoro.es",         "url": "https://cultoro.es/agenda-taurina",              "pais": "es"},
+    {"nome": "ladivisa.es",        "url": "https://www.ladivisa.es/",                       "pais": "es"},
+    {"nome": "tauromaquia.com.pt", "url": "https://www.tauromaquia.com.pt/",                "pais": "pt"},
+    # Américas — fontes globais com cobertura de Peru, Colombia, México, Venezuela, Equador, etc.
+    {"nome": "torosenelmundo.com", "url": "https://torosenelmundo.com/calendario/",         "pais": "am"},
+    {"nome": "voyalostoros.com",   "url": "https://www.voyalostoros.com/",                  "pais": "am"},
 ]
 
 SITES_TV = [
@@ -152,14 +155,33 @@ def scrape_agenda(client, html):
             continue
 
         text = clean_text(raw)
-        flag = '🇵🇹' if site['pais'] == 'pt' else '🇪🇸'
-        pN   = 'Portugal' if site['pais'] == 'pt' else 'Espanha'
+
+        if site['pais'] == 'pt':
+            flag, pN = '🇵🇹', 'Portugal'
+        elif site['pais'] == 'es':
+            flag, pN = '🇪🇸', 'Espanha'
+        else:
+            # Site das Américas — eventos de vários países
+            flag, pN = '🌎', 'América'
+
+        # Para sites das Américas, pedir ao Claude que identifique o país correcto de cada evento
+        americas_extra = ""
+        if site['pais'] == 'am':
+            americas_extra = """
+IMPORTANTE: Este site cobre vários países das Américas (Peru, Colômbia, México, Venezuela, Equador, etc.).
+Para cada evento, usa a flag e pN do país correcto:
+  Peru → flag:'🇵🇪', pN:'Peru', p:'pe'
+  Colômbia → flag:'🇨🇴', pN:'Colômbia', p:'co'
+  México → flag:'🇲🇽', pN:'México', p:'mx'
+  Venezuela → flag:'🇻🇪', pN:'Venezuela', p:'ve'
+  Equador → flag:'🇪🇨', pN:'Equador', p:'ec'
+  Outros → flag:'🌎', pN:'América', p:'am'"""
 
         prompt = f"""Analisa este texto do site taurino "{site['nome']}" (país: {site['pais']}).
-Hoje: {TODAY}. Extrai APENAS eventos futuros (data >= {TODAY}).
+Hoje: {TODAY}. Extrai APENAS eventos futuros (data >= {TODAY}).{americas_extra}
 
 Devolve UM objecto JS por linha:
-{{dt:'YYYY-MM-DD',dtE:'YYYY-MM-DD',dia:'D',mes:'Mmm',p:'{site['pais']}',flag:'{flag}',pN:'{pN}',nom:'Nome',loc:'Praca, Cidade',mod:'rejones',top:0,feria:0,tv:0,lat:0,lon:0,bi:'{site["url"]}',c:{{dh:'D Mmm YYYY',t:'Ganadaria',to:[{{n:'Nome',nat:'{flag}',r:'CAVALEIRO'}}],p:'Praca',cap:'A confirmar'}},no:'',fi:null}}
+{{dt:'YYYY-MM-DD',dtE:'YYYY-MM-DD',dia:'D',mes:'Mmm',p:'{site['pais']}',flag:'{flag}',pN:'{pN}',nom:'Nome',loc:'Praca, Cidade',mod:'rejones',top:0,feria:0,tv:0,lat:0,lon:0,bi:'{site["url"]}',c:{{dh:'D Mmm YYYY',t:'Ganadaria',to:[{{n:'Nome',nat:'{flag}',r:'TORERO'}}],p:'Praca',cap:'A confirmar'}},no:'',fi:null}}
 
 mes: Jan Feb Mar Abr Mai Jun Jul Ago Set Out Nov Dez
 mod: rejones / corrida / misto
