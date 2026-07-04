@@ -59,13 +59,25 @@ def fetch(url, timeout=20):
         print(f"  ⚠ Erro {url}: {e}")
         return ""
 
-def clean_text(html, max_chars=12000):
+def clean_text(html, max_chars=80000):
     soup = BeautifulSoup(html, "lxml")
     for tag in soup(["script","style","nav","footer","header","aside","form","button"]):
         tag.decompose()
     text = soup.get_text(separator="\n", strip=True)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text[:max_chars]
+
+def chunk_text(text, chunk_size=15000, overlap=500):
+    """Divide texto em chunks com sobreposição para não perder eventos na fronteira."""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunks.append(text[start:end])
+        if end == len(text):
+            break
+        start = end - overlap
+    return chunks
 
 def strip_md_fences(text):
     """Remove blocos de markdown ```json / ```javascript / ``` que a API por vezes
@@ -158,6 +170,8 @@ def scrape_agenda(client, html):
             continue
 
         text = clean_text(raw)
+        chunks = chunk_text(text)
+        print(f"  → {len(chunks)} chunk(s) de texto")
 
         if site['pais'] == 'pt':
             flag, pN = '🇵🇹', 'Portugal'
@@ -166,10 +180,8 @@ def scrape_agenda(client, html):
         elif site['pais'] == 'fr':
             flag, pN = '🇫🇷', 'França'
         else:
-            # Site das Américas — eventos de vários países
             flag, pN = '🌎', 'América'
 
-        # Para sites das Américas, pedir ao Claude que identifique o país correcto de cada evento
         americas_extra = ""
         if site['pais'] == 'am':
             americas_extra = """
@@ -182,10 +194,12 @@ Para cada evento, usa a flag e pN do país correcto:
   Equador → flag:'🇪🇨', pN:'Equador', p:'ec'
   Outros → flag:'🌎', pN:'América', p:'am'"""
 
-        prompt = f"""Analisa este texto do site taurino "{site['nome']}" (país: {site['pais']}).
+        for chunk_i, chunk in enumerate(chunks):
+            print(f"  chunk {chunk_i+1}/{len(chunks)}...")
+            prompt = f"""Analisa este texto do site taurino "{site['nome']}" (país: {site['pais']}).
 Hoje: {TODAY}. Extrai APENAS eventos futuros (data >= {TODAY}).{americas_extra}
 
-Devolve UM objecto JS por linha:
+Devolve UM objecto JS por linha — TODOS os eventos que encontrares, sem omitir nenhum:
 {{dt:'YYYY-MM-DD',dtE:'YYYY-MM-DD',dia:'D',mes:'Mmm',p:'{site['pais']}',flag:'{flag}',pN:'{pN}',nom:'Nome',loc:'Praca, Cidade',mod:'rejones',top:0,feria:0,tv:0,lat:0,lon:0,bi:'{site["url"]}',c:{{dh:'D Mmm YYYY',t:'Ganadaria',to:[{{n:'Nome',nat:'{flag}',r:'TORERO'}}],p:'Praca',cap:'A confirmar'}},no:'',fi:null}}
 
 mes: Jan Feb Mar Abr Mai Jun Jul Ago Set Out Nov Dez
@@ -193,32 +207,32 @@ mod: rejones / corrida / misto
 SÓ objectos JS, sem texto extra, sem ```.
 
 TEXTO:
-{text}"""
+{chunk}"""
 
-        resp = ask_claude(client, prompt)
-        if not resp:
-            continue
-
-        for obj in split_top_level_objects(resp):
-            obj = obj.strip()
-
-            m_dt  = re.search(r"dt:'(\d{4}-\d{2}-\d{2})'", obj)
-            m_loc = re.search(r"loc:'([^']+)'", obj)
-            if not m_dt or not m_loc:
+            resp = ask_claude(client, prompt, max_tokens=4000)
+            if not resp:
                 continue
 
-            dt  = m_dt.group(1)
-            loc = m_loc.group(1)[:30]
-            key = f"{dt}|{loc}"
+            for obj in split_top_level_objects(resp):
+                obj = obj.strip()
 
-            if not is_future(dt) or key in existing:
-                continue
+                m_dt  = re.search(r"dt:'(\d{4}-\d{2}-\d{2})'", obj)
+                m_loc = re.search(r"loc:'([^']+)'", obj)
+                if not m_dt or not m_loc:
+                    continue
 
-            new_entries.append(obj)
-            existing.add(key)
-            print(f"  ✓ {dt} | {loc[:50]}")
+                dt  = m_dt.group(1)
+                loc = m_loc.group(1)[:30]
+                key = f"{dt}|{loc}"
 
-        time.sleep(2)
+                if not is_future(dt) or key in existing:
+                    continue
+
+                new_entries.append(obj)
+                existing.add(key)
+                print(f"  ✓ {dt} | {loc[:50]}")
+
+            time.sleep(2)
 
     return new_entries
 
