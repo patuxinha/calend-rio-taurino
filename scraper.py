@@ -50,6 +50,8 @@ SITES_TV = [
 MES_MAP = {1:'Jan',2:'Feb',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
            7:'Jul',8:'Ago',9:'Set',10:'Out',11:'Nov',12:'Dez'}
 
+HORIZON = TODAY + datetime.timedelta(days=183)  # 6 meses à frente
+
 # ── Utilidades ─────────────────────────────────────────────────────────────────
 
 def fetch(url, timeout=20):
@@ -144,7 +146,8 @@ def ask_claude(client, prompt, max_tokens=2500):
 
 def is_future(dt_str):
     try:
-        return datetime.date.fromisoformat(dt_str) >= TODAY
+        d = datetime.date.fromisoformat(dt_str) if isinstance(dt_str, str) else dt_str
+        return TODAY <= d <= HORIZON
     except:
         return False
 
@@ -550,7 +553,7 @@ def prune_past_events(html):
                 kept.append(obj); continue
             try:
                 dt = datetime.date.fromisoformat(m.group(1))
-                if dt >= TODAY:
+                if TODAY <= dt <= HORIZON:
                     kept.append(obj)
                 else:
                     total_removed += 1
