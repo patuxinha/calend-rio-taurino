@@ -43,6 +43,8 @@ SITES_AGENDA = [
 SITES_TV = [
     {"nome": "elmuletazo.com", "url": "https://elmuletazo.com/agenda-de-toros-en-television/"},
     {"nome": "cultoro.es TV",  "url": "https://cultoro.es/toros-en-television-agenda"},
+    {"nome": "tertulias.fr TV","url": "https://www.tertulias.fr/cartels-2026/"},
+    {"nome": "torosenelmundo TV","url": "https://torosenelmundo.com/calendario/"},
 ]
 
 MES_MAP = {1:'Jan',2:'Feb',3:'Mar',4:'Abr',5:'Mai',6:'Jun',
@@ -238,101 +240,175 @@ TEXTO:
 
 # ── Fase 2: TV ─────────────────────────────────────────────────────────────────
 
+MESES_ES = {
+    'enero':1,'febrero':2,'marzo':3,'abril':4,'mayo':5,'junio':6,
+    'julio':7,'agosto':8,'septiembre':9,'octubre':10,'noviembre':11,'diciembre':12
+}
+
+def parse_elmuletazo(raw_html):
+    """Extracção directa do elmuletazo.com sem API — o formato é muito regular."""
+    soup = BeautifulSoup(raw_html, "lxml")
+    # Remover comentários, nav, etc
+    for tag in soup(["script","style","nav","footer","header","aside"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n", strip=True)
+
+    events = []
+    # Cada evento começa com 🗓 dia de Mes de Año ⏰️HH:MMh 📺 Canal 🏟 Local 🐂 Desc
+    pattern = re.compile(
+        r'🗓\s+(\w+)\s+(\d+)\s+de\s+(\w+)\s+de\s+(\d{4})\s+'
+        r'⏰️(\d{2}:\d{2})h[^\n]*?📺[^\n]*?(\w[^\n🏟]*?)\.\s*🏟\s*([^\n🐂]+?)\.\s*🐂\s*([^\n🔗]+)',
+        re.DOTALL
+    )
+    # Padrão mais simples linha a linha
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if '🗓' in line and '⏰' in line:
+            # Extrai data
+            m_date = re.search(r'(\d+)\s+de\s+(\w+)\s+de\s+(\d{4})', line)
+            m_hora = re.search(r'⏰️?(\d{2}:\d{2})h', line)
+            if not m_date or not m_hora:
+                i += 1
+                continue
+
+            dia_num = int(m_date.group(1))
+            mes_str = m_date.group(2).lower()
+            ano = int(m_date.group(3))
+            hora = m_hora.group(1)
+            mes_num = MESES_ES.get(mes_str)
+            if not mes_num:
+                i += 1
+                continue
+
+            try:
+                dt = datetime.date(ano, mes_num, dia_num)
+            except:
+                i += 1
+                continue
+
+            # Canal — texto a seguir ao emoji 📺 até ao próximo emoji
+            m_canal = re.search(r'📺[^📺🏟🐂\n]*\*\*([^*]+)\*\*', line)
+            if not m_canal:
+                m_canal = re.search(r'📺[^📺🏟🐂]*?((?:La\s+\d|Canal|Tele|One|Aragón|CMM|Castilla|Navarra|À\s+Punt|Toros)[^\n.🏟🐂]+?)(?:\.|🏟|🐂|$)', line)
+            canal = m_canal.group(1).strip() if m_canal else ''
+            # Limpa bold markdown
+            canal = re.sub(r'\*+', '', canal).strip()
+
+            # Local — entre 🏟 e 🐂
+            m_local = re.search(r'🏟\s*([^🐂\n]+)', line)
+            local = m_local.group(1).strip().rstrip('.') if m_local else ''
+
+            # Descrição/cartel — depois de 🐂
+            m_desc = re.search(r'🐂\s*(.+?)(?:🔗|$)', line, re.DOTALL)
+            desc = m_desc.group(1).strip() if m_desc else ''
+            # Remove markdown bold
+            desc = re.sub(r'\*+', '', desc).strip()
+
+            if canal and local and dt:
+                events.append({
+                    'dt': dt,
+                    'hora': hora,
+                    'canal': canal[:60],
+                    'local': local[:60],
+                    'desc': desc[:200],
+                })
+        i += 1
+
+    return events
+
 def scrape_tv(client, html):
     existing = tv_keys(html)
     corrections = []
     new_tv = []
 
-    # Recolhe texto de todos os sites TV
-    combined = ""
-    for site in SITES_TV:
-        print(f"\n📺 {site['nome']}...")
-        raw = fetch(site["url"])
-        if len(raw) > 200:
-            combined += f"\n\n--- {site['nome']} ---\n" + clean_text(raw, 8000)
-        time.sleep(1)
-
-    if not combined:
-        return [], []
-
-    prompt = f"""Analisa estes textos de agenda de toros em televisão.
-Hoje: {TODAY}. Lista TODOS os eventos televisados a partir de hoje.
-
-Uma linha por evento, formato EXACTO (separado por |):
-DATA|HORA|CANAL|LOCAL|NOME DO EVENTO|CARTEL
-
-Exemplo:
-2026-06-13|19:00|Canal Sur|Marbella, Málaga|Feria San Bernabé|El Freixo p/ Morante, Talavante, Miranda
-
-- DATA: YYYY-MM-DD
-- HORA: HH:MM (sem h)
-- CANAL: nome exacto (Telemadrid, Canal Sur, CMM, Aragón TV, À Punt, Canal Extremadura, OneToro, RTP, etc.)
-- Sem cabeçalhos, sem texto extra
-
-TEXTO:
-{combined[:18000]}"""
-
-    resp = ask_claude(client, prompt, max_tokens=3000)
-    if not resp:
-        return [], []
-
-    print(f"  → {len(resp.splitlines())} linhas recebidas")
-
-    # Extrai entradas TV existentes para comparação (dt, chan, loc)
     tv_existing_list = re.findall(
         r"dt:'(\d{4}-\d{2}-\d{2})'[^}]*?chan:'([^']*)'[^}]*?loc:'([^']*)'",
         html
     )
 
-    for line in resp.splitlines():
-        parts = line.strip().split('|')
-        if len(parts) < 6:
-            continue
-
-        dt    = parts[0].strip()
-        hora  = parts[1].strip()
-        canal = parts[2].strip()
-        local = parts[3].strip()
-        nome  = parts[4].strip()
-        cartel = '|'.join(parts[5:]).strip()
-
-        if not is_future(dt):
-            continue
-
-        # Verifica correcções: mesmo dt + local, canal diferente
+    def process_tv_entry(dt_obj, hora, canal, local, desc, dt_str=None):
+        """Processa uma entrada TV e adiciona se for nova."""
+        if dt_str is None:
+            dt_str = dt_obj.isoformat()
+        if not is_future(dt_obj if isinstance(dt_obj, datetime.date) else datetime.date.fromisoformat(dt_str)):
+            return
         for ex_dt, ex_chan, ex_loc in tv_existing_list:
-            if ex_dt == dt and local[:20] == ex_loc[:20] and canal != ex_chan:
-                corrections.append({
-                    'dt': dt,
-                    'old_chan': ex_chan,
-                    'new_chan': canal,
-                    'loc': ex_loc,
-                })
-                print(f"  ✏ {dt} {ex_loc[:25]}: {ex_chan} → {canal}")
-
-        # Verifica se é novo
-        key = f"{dt}|{canal}|{local[:20]}"
+            if ex_dt == dt_str and local[:20] == ex_loc[:20] and canal != ex_chan:
+                corrections.append({'dt': dt_str, 'old_chan': ex_chan, 'new_chan': canal, 'loc': ex_loc})
+                print(f"  ✏ {dt_str} {ex_loc[:25]}: {ex_chan} → {canal}")
+        key = f"{dt_str}|{canal}|{local[:20]}"
         if key in existing:
-            continue
-
-        try:
-            d   = datetime.date.fromisoformat(dt)
+            return
+        if isinstance(dt_obj, datetime.date):
+            mes = MES_MAP[dt_obj.month]
+            dia = str(dt_obj.day)
+        else:
+            d = datetime.date.fromisoformat(dt_str)
             mes = MES_MAP[d.month]
             dia = str(d.day)
-        except:
-            continue
-
         pais_flag = '🇵🇹' if any(p in canal for p in ['RTP','SIC','TVI']) else '🇪🇸'
         tv_line = (
-            f"{{dt:'{dt}',dia:'{dia}',mes:'{mes}',"
+            f"{{dt:'{dt_str}',dia:'{dia}',mes:'{mes}',"
             f"chan:'{js_escape(canal)}',hora:'{hora}h {pais_flag}',"
-            f"loc:'{js_escape(local)}',nom:'{js_escape(nome)}',"
-            f"cartel:'{js_escape(cartel)}',"
+            f"loc:'{js_escape(local)}',nom:'{js_escape(desc[:80])}',"
+            f"cartel:'{js_escape(desc)}',"
             f"link:'https://elmuletazo.com/agenda-de-toros-en-television/'}}"
         )
         new_tv.append(tv_line)
         existing.add(key)
-        print(f"  ✓ TV {dt} {canal} | {local[:30]}")
+        print(f"  ✓ TV {dt_str} {canal[:30]} | {local[:30]}")
+
+    # ── Fonte 1: elmuletazo.com — parsing directo ──────────────────────────────
+    print(f"\n📺 elmuletazo.com (parsing directo)...")
+    raw = fetch(SITES_TV[0]["url"])
+    if len(raw) > 200:
+        events = parse_elmuletazo(raw)
+        print(f"  → {len(events)} eventos encontrados")
+        for ev in events:
+            process_tv_entry(ev['dt'], ev['hora'], ev['canal'], ev['local'], ev['desc'])
+
+    # ── Fontes adicionais: via Claude API ──────────────────────────────────────
+    for site in SITES_TV[1:]:
+        print(f"\n📺 {site['nome']} (via API)...")
+        raw2 = fetch(site["url"])
+        if len(raw2) < 200:
+            continue
+        chunks = chunk_text(clean_text(raw2, 40000), chunk_size=15000)
+        for chunk_i, chunk in enumerate(chunks):
+            print(f"  chunk {chunk_i+1}/{len(chunks)}...")
+            prompt = f"""Analisa este texto de agenda de toros em televisão.
+Hoje: {TODAY}. Lista TODOS os eventos televisados a partir de hoje.
+
+Uma linha por evento, formato EXACTO (separado por |):
+DATA|HORA|CANAL|LOCAL|NOME DO EVENTO|CARTEL
+
+- DATA: YYYY-MM-DD
+- HORA: HH:MM (sem h)
+- CANAL: nome exacto
+- Sem cabeçalhos, sem texto extra
+
+TEXTO:
+{chunk}"""
+            resp = ask_claude(client, prompt, max_tokens=4000)
+            if not resp:
+                continue
+            for line in resp.splitlines():
+                parts = line.strip().split('|')
+                if len(parts) < 5:
+                    continue
+                try:
+                    dt_str = parts[0].strip()
+                    hora   = parts[1].strip()
+                    canal  = parts[2].strip()
+                    local  = parts[3].strip()
+                    desc   = '|'.join(parts[4:]).strip()
+                    dt_obj = datetime.date.fromisoformat(dt_str)
+                    process_tv_entry(dt_obj, hora, canal, local, desc, dt_str)
+                except:
+                    continue
+            time.sleep(2)
 
     return corrections, new_tv
 
