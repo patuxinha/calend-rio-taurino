@@ -251,30 +251,20 @@ MESES_ES = {
 def parse_elmuletazo(raw_html):
     """Extracção directa do elmuletazo.com sem API — o formato é muito regular."""
     soup = BeautifulSoup(raw_html, "lxml")
-    # Remover comentários, nav, etc
     for tag in soup(["script","style","nav","footer","header","aside"]):
         tag.decompose()
     text = soup.get_text(separator="\n", strip=True)
 
     events = []
-    # Cada evento começa com 🗓 dia de Mes de Año ⏰️HH:MMh 📺 Canal 🏟 Local 🐂 Desc
-    pattern = re.compile(
-        r'🗓\s+(\w+)\s+(\d+)\s+de\s+(\w+)\s+de\s+(\d{4})\s+'
-        r'⏰️(\d{2}:\d{2})h[^\n]*?📺[^\n]*?(\w[^\n🏟]*?)\.\s*🏟\s*([^\n🐂]+?)\.\s*🐂\s*([^\n🔗]+)',
-        re.DOTALL
-    )
-    # Padrão mais simples linha a linha
     lines = text.split('\n')
     i = 0
     while i < len(lines):
         line = lines[i].strip()
         if '🗓' in line and '⏰' in line:
-            # Extrai data
             m_date = re.search(r'(\d+)\s+de\s+(\w+)\s+de\s+(\d{4})', line)
             m_hora = re.search(r'⏰️?(\d{2}:\d{2})h', line)
             if not m_date or not m_hora:
-                i += 1
-                continue
+                i += 1; continue
 
             dia_num = int(m_date.group(1))
             mes_str = m_date.group(2).lower()
@@ -282,41 +272,62 @@ def parse_elmuletazo(raw_html):
             hora = m_hora.group(1)
             mes_num = MESES_ES.get(mes_str)
             if not mes_num:
-                i += 1
-                continue
+                i += 1; continue
 
             try:
                 dt = datetime.date(ano, mes_num, dia_num)
             except:
-                i += 1
-                continue
+                i += 1; continue
 
-            # Canal — texto a seguir ao emoji 📺 até ao próximo emoji
+            # Canal
             m_canal = re.search(r'📺[^📺🏟🐂\n]*\*\*([^*]+)\*\*', line)
             if not m_canal:
                 m_canal = re.search(r'📺[^📺🏟🐂]*?((?:La\s+\d|Canal|Tele|One|Aragón|CMM|Castilla|Navarra|À\s+Punt|Toros)[^\n.🏟🐂]+?)(?:\.|🏟|🐂|$)', line)
-            canal = m_canal.group(1).strip() if m_canal else ''
-            # Limpa bold markdown
-            canal = re.sub(r'\*+', '', canal).strip()
+            canal = re.sub(r'\*+', '', m_canal.group(1).strip()).strip() if m_canal else ''
 
-            # Local — entre 🏟 e 🐂
+            # Local
             m_local = re.search(r'🏟\s*([^🐂\n]+)', line)
             local = m_local.group(1).strip().rstrip('.') if m_local else ''
 
-            # Descrição/cartel — depois de 🐂
+            # Descrição completa (entre 🐂 e 🔗)
             m_desc = re.search(r'🐂\s*(.+?)(?:🔗|$)', line, re.DOTALL)
-            desc = m_desc.group(1).strip() if m_desc else ''
-            # Remove markdown bold
-            desc = re.sub(r'\*+', '', desc).strip()
+            desc_full = re.sub(r'\*+', '', m_desc.group(1).strip()).strip() if m_desc else ''
 
-            if canal and local and dt:
-                events.append({
-                    'dt': dt,
-                    'hora': hora,
-                    'canal': canal[:60],
-                    'local': local[:60],
-                    'desc': desc[:200],
-                })
+            # Ganaderia — antes do 📜, ou "Toros de X para" / "Novillos de X para"
+            ganaderia = ''
+            toureiros = []
+            m_cartel = re.search(r'📜\s*(.+?)(?:🔗|$)', line, re.DOTALL)
+            if m_cartel:
+                cartel_txt = re.sub(r'\*+', '', m_cartel.group(1)).strip()
+                # Extrai ganaderia: "Toros/Novillos/Erales/Reses de X para Y, Z e W"
+                m_gan = re.search(r'(?:Toros|Novillos?|Erales?|Reses?|Becerros?)\s+de\s+([^📜🔗]+?)\s+para\s+(.+?)(?:\.\s*🔗|$)', cartel_txt, re.DOTALL)
+                if m_gan:
+                    ganaderia = m_gan.group(1).strip().rstrip('.,')
+                    toureiros_raw = m_gan.group(2).strip().rstrip('.,')
+                    # Separa toureiros por vírgula, "y", "e", "e "
+                    toureiros_raw = re.sub(r'\s+y\s+|\s+e\s+', ', ', toureiros_raw)
+                    toureiros = [t.strip().rstrip('.,') for t in re.split(r',\s*', toureiros_raw) if t.strip()]
+                else:
+                    # Sem "para" — tudo é desc
+                    ganaderia = cartel_txt[:80]
+            else:
+                # Sem 📜 — desc simples
+                # Tenta extrair ganaderia do desc_full
+                m_gan2 = re.search(r'(?:Toros|Novillos?|Erales?|Reses?)\s+de\s+([^.]+?)\s+para\s+(.+?)\.', desc_full)
+                if m_gan2:
+                    ganaderia = m_gan2.group(1).strip()
+                    toureiros_raw = re.sub(r'\s+y\s+|\s+e\s+', ', ', m_gan2.group(2))
+                    toureiros = [t.strip() for t in re.split(r',\s*', toureiros_raw) if t.strip()]
+
+            events.append({
+                'dt': dt,
+                'hora': hora,
+                'canal': canal[:60],
+                'local': local[:60],
+                'desc': desc_full[:200],
+                'ganaderia': ganaderia[:80],
+                'toureiros': toureiros[:8],
+            })
         i += 1
 
     return events
@@ -331,11 +342,17 @@ def scrape_tv(client, html):
         html
     )
 
-    def process_tv_entry(dt_obj, hora, canal, local, desc, dt_str=None):
+    def process_tv_entry(dt_obj, hora, canal, local, desc, dt_str=None, ganaderia='', toureiros=None):
         """Processa uma entrada TV e adiciona se for nova."""
+        if toureiros is None:
+            toureiros = []
         if dt_str is None:
             dt_str = dt_obj.isoformat()
-        if not is_future(dt_obj if isinstance(dt_obj, datetime.date) else datetime.date.fromisoformat(dt_str)):
+        try:
+            d = dt_obj if isinstance(dt_obj, datetime.date) else datetime.date.fromisoformat(dt_str)
+        except:
+            return
+        if not (TODAY <= d <= HORIZON):
             return
         for ex_dt, ex_chan, ex_loc in tv_existing_list:
             if ex_dt == dt_str and local[:20] == ex_loc[:20] and canal != ex_chan:
@@ -344,24 +361,22 @@ def scrape_tv(client, html):
         key = f"{dt_str}|{canal}|{local[:20]}"
         if key in existing:
             return
-        if isinstance(dt_obj, datetime.date):
-            mes = MES_MAP[dt_obj.month]
-            dia = str(dt_obj.day)
-        else:
-            d = datetime.date.fromisoformat(dt_str)
-            mes = MES_MAP[d.month]
-            dia = str(d.day)
+        mes = MES_MAP[d.month]
+        dia = str(d.day)
         pais_flag = '🇵🇹' if any(p in canal for p in ['RTP','SIC','TVI']) else '🇪🇸'
+        # Constrói array de toureiros
+        to_arr = ','.join([f"{{n:'{js_escape(t)}',nat:'🇪🇸',r:'MATADOR'}}" for t in toureiros]) if toureiros else ''
         tv_line = (
             f"{{dt:'{dt_str}',dia:'{dia}',mes:'{mes}',"
             f"chan:'{js_escape(canal)}',hora:'{hora}h {pais_flag}',"
             f"loc:'{js_escape(local)}',nom:'{js_escape(desc[:80])}',"
             f"cartel:'{js_escape(desc)}',"
+            f"c:{{dh:'{dia} {mes} {d.year}',t:'{js_escape(ganaderia)}',to:[{to_arr}],p:'{js_escape(local)}',cap:'A confirmar'}},"
             f"link:'https://elmuletazo.com/agenda-de-toros-en-television/'}}"
         )
         new_tv.append(tv_line)
         existing.add(key)
-        print(f"  ✓ TV {dt_str} {canal[:30]} | {local[:30]}")
+        print(f"  ✓ TV {dt_str} {canal[:30]} | {local[:30]}" + (f" | {ganaderia[:30]}" if ganaderia else ''))
 
     # ── Fonte 1: elmuletazo.com — parsing directo ──────────────────────────────
     print(f"\n📺 elmuletazo.com (parsing directo)...")
@@ -370,7 +385,8 @@ def scrape_tv(client, html):
         events = parse_elmuletazo(raw)
         print(f"  → {len(events)} eventos encontrados")
         for ev in events:
-            process_tv_entry(ev['dt'], ev['hora'], ev['canal'], ev['local'], ev['desc'])
+            process_tv_entry(ev['dt'], ev['hora'], ev['canal'], ev['local'], ev['desc'],
+                           ganaderia=ev.get('ganaderia',''), toureiros=ev.get('toureiros',[]))
 
     # ── Fontes adicionais: via Claude API ──────────────────────────────────────
     for site in SITES_TV[1:]:
