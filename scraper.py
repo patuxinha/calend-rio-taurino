@@ -28,16 +28,15 @@ SITES_AGENDA = [
     {"nome": "touradas.pt",        "url": "https://www.touradas.pt/agenda",                "pais": "pt"},
     {"nome": "portadossustos.com", "url": "https://www.portadossustos.com/",                "pais": "pt"},
     {"nome": "touroeouro.com",     "url": "https://touroeouro.com/",                        "pais": "pt"},
+    {"nome": "agendataurina.info", "url": "https://www.agendataurina.info/",                "pais": "es"},  # Fonte principal ES com cartels completos
     {"nome": "mundotoro.com",      "url": "https://www.mundotoro.com/agenda-taurina",       "pais": "es"},
     {"nome": "cultoro.es",         "url": "https://cultoro.es/agenda-taurina",              "pais": "es"},
     {"nome": "ladivisa.es",        "url": "https://www.ladivisa.es/",                       "pais": "es"},
     {"nome": "tauromaquia.com.pt", "url": "https://www.tauromaquia.com.pt/",                "pais": "pt"},
-    # Américas — fontes globais com cobertura de Peru, Colombia, México, Venezuela, Equador, etc.
+    {"nome": "tertulias.fr",       "url": "https://www.tertulias.fr/cartels-2026/",         "pais": "fr"},
+    {"nome": "vueltaalostoros.fr", "url": "https://www.vueltaalostoros.fr/cartels/",        "pais": "fr"},
     {"nome": "torosenelmundo.com", "url": "https://torosenelmundo.com/calendario/",         "pais": "am"},
     {"nome": "voyalostoros.com",   "url": "https://www.voyalostoros.com/",                  "pais": "am"},
-    # França
-    {"nome": "tertulias.fr",       "url": "https://www.tertulias.fr/cartels-2026/",          "pais": "fr"},
-    {"nome": "vueltaalostoros.fr", "url": "https://www.vueltaalostoros.fr/cartels/",         "pais": "fr"},
 ]
 
 SITES_TV = [
@@ -204,9 +203,15 @@ Para cada evento, usa a flag e pN do país correcto:
             prompt = f"""Analisa este texto do site taurino "{site['nome']}" (país: {site['pais']}).
 Hoje: {TODAY}. Extrai APENAS eventos futuros (data >= {TODAY}).{americas_extra}
 
-Devolve UM objecto JS por linha — TODOS os eventos que encontrares, sem omitir nenhum:
-{{dt:'YYYY-MM-DD',dtE:'YYYY-MM-DD',dia:'D',mes:'Mmm',p:'{site['pais']}',flag:'{flag}',pN:'{pN}',nom:'Nome',loc:'Praca, Cidade',mod:'rejones',top:0,feria:0,tv:0,lat:0,lon:0,bi:'{site["url"]}',c:{{dh:'D Mmm YYYY',t:'Ganadaria',to:[{{n:'Nome',nat:'{flag}',r:'TORERO'}}],p:'Praca',cap:'A confirmar'}},no:'',fi:null}}
+Devolve UM objecto JS por linha — TODOS os eventos, sem omitir nenhum:
+{{dt:'YYYY-MM-DD',dtE:'YYYY-MM-DD',dia:'D',mes:'Mmm',p:'{site['pais']}',flag:'{flag}',pN:'{pN}',nom:'Nome do evento ou feria',loc:'Praça, Cidade',mod:'corrida',top:0,feria:0,tv:0,lat:0,lon:0,bi:'{site["url"]}',c:{{dh:'D Mmm YYYY',t:'Ganadaria exacta',to:[{{n:'Nome Toureiro',nat:'{flag}',r:'MATADOR'}}],p:'Nome da Praça',cap:'A confirmar'}},no:'',fi:null}}
 
+IMPORTANTE:
+- t: ganaderia/vacada exacta (ex: 'Miura', 'Fuente Ymbro', 'Juan Pedro Domecq')
+- to: lista de toureiros/cavaleiros com nome completo (ex: 'Roca Rey', 'David de Miranda')
+- r: 'MATADOR', 'CAVALEIRO', ou 'NOVILHEIRO' conforme o tipo
+- Se não souberes ganaderia ou toureiros, deixa t:'' e to:[]
+- nom: nome da feria ou evento (ex: 'San Fermín', 'Feria de Santiago', 'Corrida de Touros')
 mes: Jan Feb Mar Abr Mai Jun Jul Ago Set Out Nov Dez
 mod: rejones / corrida / misto
 SÓ objectos JS, sem texto extra, sem ```.
@@ -614,10 +619,18 @@ def main():
         print(f"  → {n} eventos FES inseridos")
         changed = True
 
-    # Fase 2: TV — desactivado temporariamente (elmuletazo bloqueia pedidos automáticos)
-    # Os dados TV são inseridos manualmente no index.html
-    print("\n📺 FASE 2: Agenda TV — a saltar (dados inseridos manualmente)")
-    # corrections, new_tv = scrape_tv(client, html)
+    # Fase 2: TV
+    print("\n📺 FASE 2: Agenda TV")
+    corrections, new_tv = scrape_tv(client, html)
+
+    if corrections:
+        html = apply_corrections(html, corrections)
+        changed = True
+
+    if new_tv:
+        html, n = insert_tv(html, new_tv)
+        print(f"  → {n} eventos TV inseridos")
+        changed = True
 
     # Validar
     print("\n🔍 FASE 3: Validação JS")
