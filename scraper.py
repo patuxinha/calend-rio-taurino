@@ -576,7 +576,8 @@ def prune_past_events(html):
         return script[:arr_open+1] + new_body + script[arr_close:]
 
     main = prune_array(main, 'FES')
-    main = prune_array(main, 'TV_AGENDA')
+    main = prune_array(main, 'RUA')
+    # TV_AGENDA não é tocado — dados inseridos manualmente
 
     new_html = html[:main_match.start(1)] + main + html[main_match.end(1):]
     return new_html, total_removed
@@ -613,18 +614,10 @@ def main():
         print(f"  → {n} eventos FES inseridos")
         changed = True
 
-    # Fase 2: TV
-    print("\n📺 FASE 2: Agenda TV")
-    corrections, new_tv = scrape_tv(client, html)
-
-    if corrections:
-        html = apply_corrections(html, corrections)
-        changed = True
-
-    if new_tv:
-        html, n = insert_tv(html, new_tv)
-        print(f"  → {n} eventos TV inseridos")
-        changed = True
+    # Fase 2: TV — desactivado temporariamente (elmuletazo bloqueia pedidos automáticos)
+    # Os dados TV são inseridos manualmente no index.html
+    print("\n📺 FASE 2: Agenda TV — a saltar (dados inseridos manualmente)")
+    # corrections, new_tv = scrape_tv(client, html)
 
     # Validar
     print("\n🔍 FASE 3: Validação JS")
