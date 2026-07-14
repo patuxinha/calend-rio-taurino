@@ -104,23 +104,27 @@ PESQUISAS = [
      f"agenda taurina Portugal touradas corridas cavaleiros {TODAY.strftime('%B %Y')} próximos eventos site:touradas.pt OR site:portadossustos.com OR site:touroeouro.com",
      "pt", "🇵🇹", "Portugal"),
 
-    ("Espanha - agenda geral",
-     f"agenda taurina España corridas {TODAY.strftime('%B %Y')} próximos festejos ganadería toreros site:mundotoro.com OR site:cultoro.es OR site:agendataurina.info",
+    ("Espanha - servitoro agenda completa",
+     f"agenda taurina España corridas festejos {TODAY.strftime('%B %Y')} site:servitoro.com",
      "es", "🇪🇸", "Espanha"),
 
-    ("Espanha - San Fermín Pamplona",
-     f"San Fermín 2026 Pamplona corridas carteles completos ganadería toreros julio 2026",
+    ("Espanha - elestoconazo e agendataurina",
+     f"agenda taurina corridas {TODAY.strftime('%B %Y')} carteles toreros ganadería site:elestoconazo.es OR site:agendataurina.info",
      "es", "🇪🇸", "Espanha"),
 
-    ("França - agenda",
+    ("Espanha - San Fermín Pamplona carteles",
+     f"San Fermín 2026 Pamplona corridas carteles completos ganadería toreros julio 2026 site:agendataurina.info OR site:mundotoro.com OR site:servitoro.com",
+     "es", "🇪🇸", "Espanha"),
+
+    ("França - agenda completa",
      f"agenda taurina France corridas ferias {TODAY.strftime('%B %Y')} cartels complets site:tertulias.fr OR site:vueltaalostoros.fr",
      "fr", "🇫🇷", "França"),
 
-    ("França - Dax Bayonne",
-     f"Feria de Dax 2026 Feria Bayonne 2026 agosto carteles toreros ganadería completo",
+    ("França - Dax Bayonne Ceret Mont-de-Marsan",
+     f"Feria de Dax 2026 Feria Bayonne 2026 Ceret Mont-de-Marsan agosto carteles toreros ganadería completo",
      "fr", "🇫🇷", "França"),
 
-    ("América - Peru Colombia Mexico",
+    ("América - Peru Colombia Mexico Venezuela",
      f"agenda taurina Peru Colombia Mexico Venezuela Ecuador {TODAY.strftime('%B %Y')} corridas carteles site:torosenelmundo.com OR site:voyalostoros.com",
      "am", "🌎", "América"),
 ]
