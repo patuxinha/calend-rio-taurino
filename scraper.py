@@ -108,12 +108,16 @@ PESQUISAS = [
      f"agenda taurina España corridas festejos {TODAY.strftime('%B %Y')} site:servitoro.com",
      "es", "🇪🇸", "Espanha"),
 
+    ("Espanha - burladero.tv carteles",
+     f"carteles taurinos {TODAY.strftime('%B %Y')} ganadería toreros site:escalafon.burladero.tv/carteles",
+     "es", "🇪🇸", "Espanha"),
+
     ("Espanha - elestoconazo e agendataurina",
      f"agenda taurina corridas {TODAY.strftime('%B %Y')} carteles toreros ganadería site:elestoconazo.es OR site:agendataurina.info",
      "es", "🇪🇸", "Espanha"),
 
-    ("Espanha - San Fermín Pamplona carteles",
-     f"San Fermín 2026 Pamplona corridas carteles completos ganadería toreros julio 2026 site:agendataurina.info OR site:mundotoro.com OR site:servitoro.com",
+    ("Espanha - agendataurina mundotoro servitoro carteles",
+     f"agenda taurina España corridas festejos {TODAY.strftime('%B %Y')} carteles completos ganadería toreros site:agendataurina.info OR site:mundotoro.com OR site:servitoro.com",
      "es", "🇪🇸", "Espanha"),
 
     ("França - agenda completa",
