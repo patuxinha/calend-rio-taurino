@@ -56,7 +56,7 @@ def split_top_level_objects(text):
     return objects
 
 def fes_keys(html):
-    m = re.search(r'const FES=\[', html)
+    m = re.search(r'(?:const|var) FES\s*=\s*\[', html)
     if not m: return set()
     arr_open = html.find('[', m.start())
     depth = 0; arr_close = None
@@ -327,7 +327,7 @@ def prune_past_events(html):
 
     def prune_array(script, array_name, hor):
         nonlocal total_removed
-        start_m = re.search(rf'const {array_name}\s*=\s*\[', script)
+        start_m = re.search(rf'(?:const|var) {array_name}\s*=\s*\[', script)
         if not start_m: return script
         arr_open = script.find('[', start_m.start())
         depth = 0; arr_close = None
@@ -380,10 +380,29 @@ def validate_js(html):
         print("  ❌ Erro JS:"); print(result.stderr); return False
     print("  ✅ JS válido (node --check)"); return True
 
+DADOS_FILE = "dados.js"
+
 def update_version(html):
     hoje = TODAY.strftime("%Y%m%d")
     return re.sub(r'<!DOCTYPE html><!-- CTB-v\d{8}[^>]* -->',
                   f'<!DOCTYPE html><!-- CTB-v{hoje}-AUTO -->', html)
+
+def rebuild_dados_js(dados):
+    """Reconstrói o ficheiro dados.js a partir dos arrays de dados."""
+    lines = ['// Calendário Taurino — Dados\n// Gerado automaticamente pelo scraper. Não editar.\n']
+    for arr_name, arr_body in dados.items():
+        lines.append(f'var {arr_name} = [{arr_body}];\n')
+    return '\n'.join(lines)
+
+def load_dados():
+    """Lê o ficheiro dados.js e extrai os arrays de dados."""
+    try:
+        with open(DADOS_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return content
+    except FileNotFoundError:
+        print(f"  ⚠ {DADOS_FILE} não encontrado")
+        return ""
 
 # ── MAIN ───────────────────────────────────────────────────────────────────────
 
@@ -393,51 +412,64 @@ def main():
     if not API_KEY:
         print("❌ ANTHROPIC_API_KEY não definida!"); sys.exit(1)
 
+    # Lê o index.html (estrutura) e dados.js (conteúdo)
     with open(HTML_FILE, 'r', encoding='utf-8') as f:
         html = f.read()
 
-    client = anthropic.Anthropic(api_key=API_KEY)
-    changed = False
+    # O scraper trabalha com dados.js + index.html em conjunto
+    # Para deduplicação e inserção, usamos o conteúdo combinado
+    dados_content = load_dados()
+    combined = html + '\n' + dados_content  # para fes_keys e tv_keys
 
-    # Fase 0: Limpeza
+    client = anthropic.Anthropic(api_key=API_KEY)
+    changed_dados = False
+    changed_html = False
+
+    # Fase 0: Limpeza de eventos passados no dados.js
     print("\n🧹 FASE 0: Limpeza de eventos passados")
-    html, pruned = prune_past_events(html)
+    dados_content, pruned = prune_past_events(dados_content)
     if pruned > 0:
         print(f"  → {pruned} eventos removidos")
-        changed = True
+        changed_dados = True
     else:
         print("  → Nada a remover")
 
     # Fase 1: Festejos via web_search
     print("\n📋 FASE 1: Festejos (web_search)")
-    new_fes = scrape_agenda_websearch(client, html)
+    new_fes = scrape_agenda_websearch(client, combined)
     if new_fes:
-        html, n = insert_fes(html, new_fes)
+        dados_content, n = insert_fes(dados_content, new_fes)
         print(f"  → {n} eventos FES inseridos")
-        changed = True
+        changed_dados = True
 
     # Fase 2: TV via web_search
     print("\n📺 FASE 2: Agenda TV (web_search)")
-    corrections, new_tv = scrape_tv_websearch(client, html)
+    corrections, new_tv = scrape_tv_websearch(client, combined)
     if corrections:
-        html = apply_corrections(html, corrections)
-        changed = True
+        dados_content = apply_corrections(dados_content, corrections)
+        changed_dados = True
     if new_tv:
-        html, n = insert_tv(html, new_tv)
+        dados_content, n = insert_tv(dados_content, new_tv)
         print(f"  → {n} eventos TV inseridos")
-        changed = True
+        changed_dados = True
 
-    # Fase 3: Validação
+    # Fase 3: Validação do dados.js
     print("\n🔍 FASE 3: Validação JS")
-    if not validate_js(html):
+    if not validate_js(html + '\n' + dados_content):
         print("❌ ABORTADO — ficheiro NÃO gravado"); sys.exit(1)
 
-    if changed:
+    if changed_dados:
+        with open(DADOS_FILE, 'w', encoding='utf-8') as f:
+            f.write(dados_content)
+        print(f"\n💾 {DADOS_FILE} actualizado")
+
+    if changed_html:
         html = update_version(html)
         with open(HTML_FILE, 'w', encoding='utf-8') as f:
             f.write(html)
         print(f"\n💾 {HTML_FILE} actualizado")
-    else:
+
+    if not changed_dados and not changed_html:
         print("\nℹ Sem alterações")
 
     print(f"\n✅ Concluído — {TODAY}\n")
