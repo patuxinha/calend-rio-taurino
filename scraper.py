@@ -151,6 +151,148 @@ REGRAS IMPORTANTES:
 - SÓ objectos JS válidos, sem texto extra, sem ```
 - Pesquisa: {query}"""
 
+PROMPT_ENRICH = """Pesquisa na web o cartel completo deste festejo taurino:
+- Data: {dt}
+- Local: {loc}
+- Nome: {nom}
+
+Devolve APENAS um objecto JS com o cartel completo:
+{{dt:'{dt}',dtE:'{dt}',dia:'{dia}',mes:'{mes}',p:'{pais}',flag:'{flag}',pN:'{pN}',nom:'{nom}',loc:'{loc}',mod:'corrida',top:0,feria:0,tv:0,lat:0,lon:0,bi:'URL fonte',c:{{dh:'{dia} {mes}',t:'Ganadaria exacta',to:[{{n:'Nome Toureiro',nat:'{flag}',r:'MATADOR'}}],p:'Praça',cap:'A confirmar'}},no:'',fi:null}}
+
+Pesquisa em: touroeouro.com, portadossustos.com, touradas.pt, mundotoro.com, agendataurina.info, burladero.tv
+SÓ o objecto JS, sem texto extra."""
+
+def enrich_entries(client, entries):
+    """Para cada entrada sem toureiros, faz pesquisa específica para encontrar o cartel completo."""
+    enriched = []
+    for obj in entries:
+        # Verifica se já tem toureiros
+        if "to:[{n:'" in obj:
+            enriched.append(obj)
+            continue
+
+        m_dt  = re.search(r"dt:'(\d{4}-\d{2}-\d{2})'", obj)
+        m_loc = re.search(r"loc:'([^']+)'", obj)
+        m_nom = re.search(r"nom:'([^']+)'", obj)
+        m_dia = re.search(r"dia:'([^']+)'", obj)
+        m_mes = re.search(r"mes:'([^']+)'", obj)
+        m_p   = re.search(r",p:'([^']+)'", obj)
+        m_flag= re.search(r"flag:'([^']+)'", obj)
+        m_pN  = re.search(r"pN:'([^']+)'", obj)
+
+        if not m_dt or not m_loc:
+            enriched.append(obj)
+            continue
+
+        dt  = m_dt.group(1)
+        loc = m_loc.group(1)
+        nom = m_nom.group(1) if m_nom else ''
+        dia = m_dia.group(1) if m_dia else dt.split('-')[2].lstrip('0')
+        mes = m_mes.group(1) if m_mes else ''
+        pais = m_p.group(1) if m_p else 'es'
+        flag = m_flag.group(1) if m_flag else '🇪🇸'
+        pN   = m_pN.group(1) if m_pN else 'Espanha'
+
+        print(f"  🔎 A enriquecer: {dt} | {loc[:30]} | {nom[:25]}")
+
+        prompt = PROMPT_ENRICH.format(
+            dt=dt, loc=js_escape(loc), nom=js_escape(nom),
+            dia=dia, mes=mes, pais=pais, flag=flag, pN=pN
+        )
+
+        resp = ask_claude_with_search(client, prompt, max_tokens=2000)
+        if resp:
+            objs = split_top_level_objects(resp)
+            if objs and "to:[{n:'" in objs[0]:
+                print(f"    ✓ Cartel encontrado!")
+                enriched.append(objs[0])
+                time.sleep(2)
+                continue
+
+        enriched.append(obj)
+
+    return enriched
+
+def enrich_existing(client, dados_content, max_to_enrich=10):
+    """Enriquece eventos existentes no dados.js que não têm toureiros.
+    Faz no máximo max_to_enrich por execução para não exceder o tempo do workflow."""
+    
+    # Encontra o array FES
+    m = re.search(r'(?:const|var) FES\s*=\s*\[', dados_content)
+    if not m: return dados_content, 0
+    arr_open = dados_content.find('[', m.start())
+    depth = 0; arr_close = None
+    for i in range(arr_open, len(dados_content)):
+        c = dados_content[i]
+        if c=='[': depth+=1
+        elif c==']':
+            depth-=1
+            if depth==0: arr_close=i; break
+    if arr_close is None: return dados_content, 0
+
+    body = dados_content[arr_open+1:arr_close]
+    objects = split_top_level_objects(body)
+
+    enriched_count = 0
+    new_objects = []
+
+    for obj in objects:
+        # Só enriquece se não tiver toureiros E for evento futuro
+        if "to:[{n:'" in obj or enriched_count >= max_to_enrich:
+            new_objects.append(obj)
+            continue
+
+        m_dt = re.search(r"dt:'(\d{4}-\d{2}-\d{2})'", obj)
+        if not m_dt or not is_in_window(m_dt.group(1)):
+            new_objects.append(obj)
+            continue
+
+        m_loc = re.search(r"loc:'([^']+)'", obj)
+        m_nom = re.search(r"nom:'([^']+)'", obj)
+        m_dia = re.search(r"dia:'([^']+)'", obj)
+        m_mes = re.search(r"mes:'([^']+)'", obj)
+        m_p   = re.search(r",p:'([^']+)'", obj)
+        m_flag= re.search(r"flag:'([^']+)'", obj)
+        m_pN  = re.search(r"pN:'([^']+)'", obj)
+
+        dt   = m_dt.group(1)
+        loc  = m_loc.group(1) if m_loc else ''
+        nom  = m_nom.group(1) if m_nom else ''
+        dia  = m_dia.group(1) if m_dia else dt.split('-')[2].lstrip('0')
+        mes  = m_mes.group(1) if m_mes else ''
+        pais = m_p.group(1) if m_p else 'es'
+        flag = m_flag.group(1) if m_flag else '🇪🇸'
+        pN   = m_pN.group(1) if m_pN else 'Espanha'
+
+        print(f"  🔎 {dt} | {loc[:30]} | {nom[:25]}")
+
+        prompt = PROMPT_ENRICH.format(
+            dt=dt, loc=js_escape(loc), nom=js_escape(nom),
+            dia=dia, mes=mes, pais=pais, flag=flag, pN=pN
+        )
+
+        resp = ask_claude_with_search(client, prompt, max_tokens=2000)
+        if resp:
+            objs = split_top_level_objects(resp)
+            if objs and "to:[{n:'" in objs[0]:
+                # Verifica que tem a data e local correcto
+                m_dt2 = re.search(r"dt:'(\d{4}-\d{2}-\d{2})'", objs[0])
+                if m_dt2 and m_dt2.group(1) == dt:
+                    print(f"    ✓ Cartel encontrado!")
+                    new_objects.append(objs[0])
+                    enriched_count += 1
+                    time.sleep(2)
+                    continue
+
+        new_objects.append(obj)
+
+    if enriched_count > 0:
+        new_body = '\n' + ',\n'.join(new_objects) + '\n'
+        dados_content = dados_content[:arr_open+1] + new_body + dados_content[arr_close:]
+
+    return dados_content, enriched_count
+
+
 def scrape_agenda_websearch(client, html):
     existing = fes_keys(html)
     new_entries = []
@@ -188,6 +330,15 @@ def scrape_agenda_websearch(client, html):
             print(f"  ✓ {dt} | {loc[:35]} | {m_nom.group(1)[:30] if m_nom else ''} | gan:{m_gan.group(1)[:20] if m_gan else ''}")
 
         time.sleep(3)
+
+    # Fase de enriquecimento: busca cartels completos para eventos sem toureiros
+    without_to = [e for e in new_entries if "to:[{n:'" not in e]
+    if without_to:
+        print(f"\n🔎 Enriquecimento: {len(without_to)} eventos sem toureiros...")
+        enriched_without = enrich_entries(client, without_to)
+        # Replace in new_entries
+        with_to = [e for e in new_entries if "to:[{n:'" in e]
+        new_entries = with_to + enriched_without
 
     return new_entries
 
@@ -441,6 +592,15 @@ def main():
         dados_content, n = insert_fes(dados_content, new_fes)
         print(f"  → {n} eventos FES inseridos")
         changed_dados = True
+
+    # Fase 1b: Enriquecimento de eventos existentes sem toureiros
+    print("\n🔎 FASE 1b: Enriquecimento de cartels existentes")
+    dados_content, enriched = enrich_existing(client, dados_content)
+    if enriched > 0:
+        print(f"  → {enriched} eventos enriquecidos com cartel completo")
+        changed_dados = True
+    else:
+        print("  → Nada a enriquecer hoje")
 
     # Fase 2: TV via web_search
     print("\n📺 FASE 2: Agenda TV (web_search)")
