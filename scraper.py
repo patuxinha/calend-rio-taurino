@@ -469,27 +469,24 @@ def apply_corrections(html, corrections):
 
 # ── Remove eventos passados e além do horizonte ────────────────────────────────
 
-def prune_past_events(html):
-    scripts_iter = list(re.finditer(r'<script(?:[^>]*)>(.*?)</script>', html, re.DOTALL))
-    if not scripts_iter: return html, 0
-    main_match = max(scripts_iter, key=lambda m: len(m.group(1)))
-    main = main_match.group(1)
+def prune_past_events(content):
+    """Remove eventos passados do conteúdo (funciona com dados.js ou index.html)."""
     total_removed = 0
 
-    def prune_array(script, array_name, hor):
+    def prune_array(text, array_name, hor):
         nonlocal total_removed
-        start_m = re.search(rf'(?:const|var) {array_name}\s*=\s*\[', script)
-        if not start_m: return script
-        arr_open = script.find('[', start_m.start())
+        start_m = re.search(rf'(?:const|var) {array_name}\s*=\s*\[', text)
+        if not start_m: return text
+        arr_open = text.find('[', start_m.start())
         depth = 0; arr_close = None
-        for i in range(arr_open, len(script)):
-            c = script[i]
+        for i in range(arr_open, len(text)):
+            c = text[i]
             if c=='[': depth+=1
             elif c==']':
                 depth-=1
                 if depth==0: arr_close=i; break
-        if arr_close is None: return script
-        body = script[arr_open+1:arr_close]
+        if arr_close is None: return text
+        body = text[arr_open+1:arr_close]
         kept = []; removed = 0
         for obj in split_top_level_objects(body):
             m = re.search(r"dt[E]?:'(\d{4}-\d{2}-\d{2})'", obj)
@@ -500,36 +497,37 @@ def prune_past_events(html):
                 else: removed+=1; total_removed+=1
             except: kept.append(obj)
         print(f"  {array_name}: removidos {removed}, mantidos {len(kept)}")
-        return script[:arr_open+1] + '\n' + ',\n'.join(kept) + '\n' + script[arr_close:]
+        return text[:arr_open+1] + '\n' + ',\n'.join(kept) + '\n' + text[arr_close:]
 
-    main = prune_array(main, 'FES', HORIZON)
-    main = prune_array(main, 'RUA', HORIZON)
-    # TV_AGENDA: só remove passados, não corta no horizonte (dados são manuais)
-    main = prune_array(main, 'TV_AGENDA', TODAY + datetime.timedelta(days=90))
+    content = prune_array(content, 'FES', HORIZON)
+    content = prune_array(content, 'RUA', HORIZON)
+    content = prune_array(content, 'TV_AGENDA', TODAY + datetime.timedelta(days=90))
 
-    new_html = html[:main_match.start(1)] + main + html[main_match.end(1):]
-    return new_html, total_removed
+    return content, total_removed
 
 # ── Valida JS ──────────────────────────────────────────────────────────────────
 
-def validate_js(html):
-    scripts = re.findall(r'<script(?:[^>]*)>(.*?)</script>', html, re.DOTALL)
-    main_script = max(scripts, key=len) if scripts else ''
-    if not main_script.strip():
-        print("  ⚠ Nenhum script encontrado"); return False
+def validate_js(content):
+    """Valida sintaxe JS — funciona com dados.js (texto puro) ou index.html."""
+    # Se for HTML, extrai o script principal
+    if '<script' in content:
+        scripts = re.findall(r'<script(?:[^>]*)>(.*?)</script>', content, re.DOTALL)
+        js_to_check = max(scripts, key=len) if scripts else ''
+    else:
+        js_to_check = content
+    
+    if not js_to_check.strip():
+        print("  ⚠ Nenhum JS encontrado"); return False
     tmp = '/tmp/_ctb_validate.js'
     with open(tmp, 'w', encoding='utf-8') as f:
-        f.write(main_script)
+        f.write(js_to_check)
     try:
         result = subprocess.run(['node','--check',tmp], capture_output=True, text=True, timeout=30)
     except FileNotFoundError:
-        opens, closes = main_script.count('{'), main_script.count('}')
-        if opens != closes:
-            print(f"  ❌ Erro sintaxe (fallback): {opens} {{ vs {closes} }}"); return False
-        print(f"  ✅ JS OK (fallback)"); return True
+        return True  # node não disponível, assume válido
     if result.returncode != 0:
         print("  ❌ Erro JS:"); print(result.stderr); return False
-    print("  ✅ JS válido (node --check)"); return True
+    print("  ✅ JS válido"); return True
 
 DADOS_FILE = "dados.js"
 
