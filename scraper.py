@@ -309,15 +309,14 @@ def prune_past_events(content):
 
 def insert_fes(content, entries):
     if not entries: return content, 0
-    marker = '];\n\nvar RUA=['
-    idx = content.find(marker)
-    if idx < 0: marker = '];\n\nconst RUA=['
-    idx = content.find(marker)
-    if idx < 0:
-        print("  ⚠ Marcador FES não encontrado!")
-        return content, 0
-    block = f"\n\n  /* AUTO {TODAY} */\n" + "\n".join(f"  ,{e}" for e in entries) + "\n"
-    return content[:idx] + block + content[idx:], len(entries)
+    # Tenta vários formatos de marcador
+    for marker in ['];\n\nvar RUA = [', '];\n\nvar RUA=[', '];\n\nconst RUA=[', '];\n\nconst RUA = [']:
+        idx = content.find(marker)
+        if idx >= 0:
+            block = f"\n\n  /* AUTO {TODAY} */\n" + "\n".join(f"  ,{e}" for e in entries) + "\n"
+            return content[:idx] + block + content[idx:], len(entries)
+    print("  ⚠ Marcador FES não encontrado!")
+    return content, 0
 
 # ── Insere TV ──────────────────────────────────────────────────────────────────
 
